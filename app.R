@@ -1,16 +1,16 @@
 type_id <- paste0("v1.0.20240711")
 
 library("shiny")
+library("shinycssloaders")
+library("shinyjqui")
+library("svglite")
+library("ggplot2")
+library("dplyr")
+library("reshape2")
+library("plotly")
 library("DT")
 library("data.table")
 library("RecordLinkage")
-library("dplyr")
-library("reshape2")
-library("ggplot2")
-library("shinyjqui")
-library("shinycssloaders")
-library("plotly")
-library("svglite")
 
 options(shiny.maxRequestSize = 10000*1024^2)
 
@@ -30,7 +30,8 @@ ui <- navbarPage("{ MergeQC }",
                           sidebarLayout(
                             sidebarPanel(
                               fileInput("MatFileInput", label = "Matrix Files:",multiple = T, placeholder = "CTRL + left click files"),
-                              fileInput("MetFileInput", label = "Meta Files:",multiple = T, placeholder = "CTRL + left click files")
+                              fileInput("MetFileInput", label = "Meta Files:",multiple = T, placeholder = "CTRL + left click files"),
+                              tags$a(href="https://github.com/shawlab-moffitt/mergeQC/raw/main/Example_Data/Example_Data.zip", "Download example data", target='_blank')
                             ),
                             
                             # Show a plot of the generated distribution
@@ -69,7 +70,25 @@ ui <- navbarPage("{ MergeQC }",
                                                tabsetPanel(
                                                  tabPanel("Data Input",
                                                           p(),
-                                                          selectizeInput("LogDataOpts","Select datasets to log2+1:", choices = NULL, selected = NULL, multiple = T),
+                                                          fluidRow(
+                                                            column(6,
+                                                                   selectizeInput("LogDataOpts","Select datasets to log:", choices = NULL, selected = NULL, multiple = T)
+                                                                   ),
+                                                            column(3,
+                                                                   selectInput("LogMthod","Log Base:", choices = c("Log2","Log10","Log"))
+                                                                   ),
+                                                            column(3,
+                                                                   numericInput("LogPseudo","Pseudocount:", value = 1)
+                                                                   )
+                                                          ),
+                                                          fluidRow(
+                                                            column(6,
+                                                                   selectizeInput("ExpDataOpts","Select datasets to exponentiate:", choices = NULL, selected = NULL, multiple = T)
+                                                            ),
+                                                            column(6,
+                                                                   numericInput("ExpNum","Exponential Base:", value = 2)
+                                                            )
+                                                          ),
                                                           div(DT::dataTableOutput("DataQCtab"), style = "font-size:12px"),
                                                           downloadButton("dnldDataQCtab","Download Table")
                                                  ),
@@ -158,9 +177,9 @@ server <- function(input, output, session) {
     
   })
   
-  observe({
+  observeEvent(input$MatFileInput,{
     
-    req(matrix_files_react())
+    #req(matrix_files_react())
     appendTab(inputId = "tabs",
               tabPanel("Full Merged Matrix",
                        uiOutput("rendFullMatrixHeader"),
@@ -180,6 +199,7 @@ server <- function(input, output, session) {
   observe({
     req(matrix_files_df_react())
     updateSelectizeInput(session,"LogDataOpts",choices = tools::file_path_sans_ext(matrix_files_df_react()[,"name"]), selected = NULL)
+    updateSelectizeInput(session,"ExpDataOpts",choices = tools::file_path_sans_ext(matrix_files_df_react()[,"name"]), selected = NULL)
   })
   
   matrix_files_react <- reactive({
@@ -187,6 +207,10 @@ server <- function(input, output, session) {
     req(matrix_files_df_react())
     file_df <- matrix_files_df_react()
     logData <- input$LogDataOpts
+    logMethod <- input$LogMthod
+    logPseudo <- input$LogPseudo
+    expData <- input$ExpDataOpts
+    ExpNum <- input$ExpNum
     if (nrow(file_df) == 1) {
       if (tools::file_ext(file_df$datapath[1]) %in% c("zip","ZIP","gz","GZ")) {
         filelist <- unzip(file_df$datapath, list = T)
@@ -200,7 +224,16 @@ server <- function(input, output, session) {
         colnames(df)[1] <- "Gene"
         tabName <- tools::file_path_sans_ext(file_df[row,"name"])
         if (tabName %in% logData) {
-          df[,-1] <- log2(as.matrix(df[,-1]+1))
+          if (logData == "Log2") {
+            df[,-1] <- log2(as.matrix(df[,-1]+logPseudo))
+          } else if (logData == "Log10") {
+            df[,-1] <- log10(as.matrix(df[,-1]+logPseudo))
+          } else if (logData == "Log") {
+            df[,-1] <- log(as.matrix(df[,-1]+logPseudo))
+          }
+        }
+        if (tabName %in% expData) {
+          df[,-1] <- ExpNum^(as.matrix(df[,-1]))
         }
         df_list[[tabName]] <- df
       }
@@ -508,7 +541,6 @@ server <- function(input, output, session) {
     df_list_avgExpr <- lapply(seq_along(df_list),function(x) {
       df <- df_list[[x]]
       df_name <- names(df_list)[[x]]
-      print(head(df,c(5,5)))
       x_mean <- rowMeans(as.matrix(df[,-1]))
       x_mean_df <- data.frame(Gene = df[,1],
                               Avg_Expression = x_mean)
@@ -547,7 +579,6 @@ server <- function(input, output, session) {
     
     if (length(input$DataQCtab_rows_selected) > 0) {
       df_list_avgExpr_df <- DensityPlot_df()
-      print(input$DataQCtab_rows_selected)
       files_select <- QC_react()[input$DataQCtab_rows_selected,1]
       xMax <- max(QC_react()[input$DataQCtab_rows_selected,6])
       df_list_avgExpr_df_select <- df_list_avgExpr_df[,c(colnames(df_list_avgExpr_df)[1],files_select)]
