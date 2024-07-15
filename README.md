@@ -1,5 +1,9 @@
 # mergeQC
 
+We present an R Shiny application that allows for users to merge multiple datasets of expression and meta data, as well as the ability to perform a brief check of the quality between the datasets.
+
+This application can be downloaded and ran locally or through out public mergeQC page below.
+
 http://shawlab-moffitt.shinyapps.io/mergeqc
 
 # Installation
