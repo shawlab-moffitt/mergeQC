@@ -36,6 +36,10 @@ After the required pacakges are installed and the app.R file is in a local repos
 
 Use CTRL + left click to select the proper files for each input section
 
+![alt text](https://github.com/shawlab-moffitt/mergeQC/blob/main/Example_Images/Load_data.PNG?raw=true)
+
+![alt text](https://github.com/shawlab-moffitt/mergeQC/blob/main/Example_Images/Loaded_data.PNG?raw=true)
+
 ## Data Processing
 
 ### Expression Data
