@@ -68,9 +68,7 @@ Use CTRL + left click to select the proper files for each input section
 * Users can select datasets on the sidebar panel and the datasets selected will be log2 transformed and the data will be updated on all tabs.
 
 
-![alt text](https://github.com/shawlab-moffitt/mergeQC/blob/main/Example_Images/dataqc.PNG?raw=true)
-
-![alt text](https://github.com/shawlab-moffitt/mergeQC/blob/main/Example_Images/dataqc_logged.PNG?raw=true)
+![alt text](https://github.com/shawlab-moffitt/mergeQC/blob/main/Example_Images/dataqc_log_trans.png?raw=true)
 
 ![alt text](https://github.com/shawlab-moffitt/mergeQC/blob/main/Example_Images/density.PNG?raw=true)
 
