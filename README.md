@@ -23,8 +23,8 @@ After the required pacakges are installed and the app.R file is in a local repos
 ## Expression Data
 
 *  Tab-delimited data table
-  *  First column consists of feature names
-  *  Following columns are of numeric expression values, with the column names referring to the sample name
+   *  First column consists of feature names
+   *  Following columns are of numeric expression values, with the column names referring to the sample name
 
 ## Meta Data
 
