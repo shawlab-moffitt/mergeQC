@@ -24,6 +24,8 @@ After the required pacakges are installed and the app.R file is in a local repos
 
 # Input Data
 
+* Example data is available to download through the GitHub repo or through a link on the app interface.
+
 ## Expression Data
 
 *  Tab-delimited data table
