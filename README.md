@@ -53,6 +53,21 @@ Use CTRL + left click to select the proper files for each input section
 
 # Merged Data QC
 
+## Average Expression Density
+
+* Users can view the density of the average expression over all genes in each data set, as well as overlap datasets by selecting multiple rows.
+* This can help users check their data and see if any transformations need to be done to ensure it is comparable to the other datasets.
+* Users can select datasets on the sidebar panel and the datasets selected will be log2 transformed and the data will be updated on all tabs.
+
+## Average Expression Comparison
+
+* Users can select two datasets to compare expression data through an interactive scatter plot.
+* Upon hover users can see the gene and expression value from each dataset.
+* The red points have a higher expression in the y-axis dataset, and the bluse have a higher expression int eh x-axis dataset.
+* User can also sear for and highlight specifc genes on the sidebar.
+
+
+
 
 
 
