@@ -77,6 +77,7 @@ Use CTRL + left click to select the proper files for each input section
 * The red points have a higher expression in the y-axis dataset, and the bluse have a higher expression int eh x-axis dataset.
 * User can also sear for and highlight specifc genes on the sidebar.
 
+![alt text](https://github.com/shawlab-moffitt/mergeQC/blob/main/Example_Images/avg_expr.PNG?raw=true)
 
 
 
