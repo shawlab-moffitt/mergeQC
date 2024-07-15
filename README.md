@@ -32,4 +32,41 @@ After the required pacakges are installed and the app.R file is in a local repos
   *  The first column should consist of sample names that are found in the expression data column names
   *  The following columns can be additional information on these samples 
 
+# Load data into the app
+
+Use CTRL + left click to select the proper files for each input section
+
+## Data Processing
+
+### Expression Data
+
+* Expression matrices are merged based on similar features between input data. Users can view and download both an inner merged matrix or full merged matrix. The inner merged matrix will only contain features that were similar throughout all of the matrices input. The full merged matrix will contain all genes from the input matrices, and if there is a gene not found in one matrix, that value will be NA.
+
+### Meta Data
+
+* The meta data will be merged based on similar sample names found in the first column and similar column names. If similarities are not found the data will be added as additional rows and NA values in columns that do not match.
+
+### Notes
+
+* At the top of the data preview page a summary of the merged data will be displayed.
+
+
+# Merged Data QC
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
