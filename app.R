@@ -20,6 +20,25 @@ Modes <- function(x) {
   ux[tab == max(tab, na.rm = T)]
 }
 
+filter_expression_matrix <- function(data,criteria,proportion) {
+  # Extract gene symbols
+  gene_symbols <- data[, 1]
+  # Extract the numerical data part of the matrix
+  numeric_data <- data[, -1]
+  # Calculate the number of columns with numerical data
+  num_cols <- ncol(numeric_data)
+  # Determine the threshold for the number of columns with values < 1
+  threshold <- (proportion/100) * num_cols
+  # Filter the rows based on the threshold
+  keep_rows <- apply(numeric_data, 1, function(row) {
+    sum(row < criteria) <= threshold
+  })
+  # Combine the gene symbols with the filtered numeric data
+  filtered_matrix <- cbind(gene_symbols[keep_rows], numeric_data[keep_rows, ])
+  colnames(filtered_matrix)[1] <- colnames(data)[1]
+  return(filtered_matrix)
+}
+
 # UI ---------------------------------------------------------------------------
 
 # Define UI for application that draws a histogram
@@ -29,9 +48,23 @@ ui <- navbarPage("{ MergeQC }",
                  tabPanel("Data Preview",
                           sidebarLayout(
                             sidebarPanel(
+                              h3("File Upload"),
                               fileInput("MatFileInput", label = "Matrix Files:",multiple = T, placeholder = "CTRL + left click files"),
                               fileInput("MetFileInput", label = "Meta Files:",multiple = T, placeholder = "CTRL + left click files"),
-                              tags$a(href="https://github.com/shawlab-moffitt/mergeQC/raw/main/Example_Data/Example_Data.zip", "Download example data", target='_blank')
+                              tags$a(href="https://github.com/shawlab-moffitt/mergeQC/raw/main/Example_Data/Example_Data.zip", "Download example data", target='_blank'),
+                              conditionalPanel(condition = "output.MatFileInputUploaded == true",
+                                               hr(),
+                                               h4("Filter features with expression value of __ in __% of samples"),
+                                               fluidRow(
+                                                 column(6,
+                                                        numericInput("matFilterNum","Filter Value:",NULL)
+                                                 ),
+                                                 column(6,
+                                                        numericInput("matFilterProp","Filter Proportion (%):",NULL)
+                                                 )
+                                               )
+                                               )
+                              
                             ),
                             
                             # Show a plot of the generated distribution
@@ -138,6 +171,11 @@ ui <- navbarPage("{ MergeQC }",
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
   
+  output$MatFileInputUploaded <- reactive({
+    return(!is.null(matrix_files_react()))
+  })
+  outputOptions(output, 'MatFileInputUploaded', suspendWhenHidden=FALSE)
+  
   FileCheckAlerts_react <- reactiveVal()
   
   output$FileCheckAlerts <- renderPrint({
@@ -177,6 +215,14 @@ server <- function(input, output, session) {
     
   })
   
+  MatFileIn <- reactive({
+    
+    if (isTruthy(matrix_files_react())) {
+      TRUE
+    } else { FALSE }
+    
+  })
+  
   observeEvent(input$MatFileInput,{
     
     #req(matrix_files_react())
@@ -202,15 +248,10 @@ server <- function(input, output, session) {
     updateSelectizeInput(session,"ExpDataOpts",choices = tools::file_path_sans_ext(matrix_files_df_react()[,"name"]), selected = NULL)
   })
   
-  matrix_files_react <- reactive({
+  matrix_files_in_react <- reactive({
     
     req(matrix_files_df_react())
     file_df <- matrix_files_df_react()
-    logData <- input$LogDataOpts
-    logMethod <- input$LogMthod
-    logPseudo <- input$LogPseudo
-    expData <- input$ExpDataOpts
-    ExpNum <- input$ExpNum
     if (nrow(file_df) == 1) {
       if (tools::file_ext(file_df$datapath[1]) %in% c("zip","ZIP","gz","GZ")) {
         filelist <- unzip(file_df$datapath, list = T)
@@ -223,22 +264,50 @@ server <- function(input, output, session) {
         df <- as.data.frame(fread(file_df[row,"datapath"]))
         colnames(df)[1] <- "Gene"
         tabName <- tools::file_path_sans_ext(file_df[row,"name"])
-        if (tabName %in% logData) {
-          if (logData == "Log2") {
-            df[,-1] <- log2(as.matrix(df[,-1]+logPseudo))
-          } else if (logData == "Log10") {
-            df[,-1] <- log10(as.matrix(df[,-1]+logPseudo))
-          } else if (logData == "Log") {
-            df[,-1] <- log(as.matrix(df[,-1]+logPseudo))
-          }
-        }
-        if (tabName %in% expData) {
-          df[,-1] <- ExpNum^(as.matrix(df[,-1]))
-        }
         df_list[[tabName]] <- df
       }
       df_list
     }
+    
+  })
+  
+  
+  
+  matrix_files_react <- reactive({
+    
+    req(matrix_files_in_react())
+    df_list <- matrix_files_in_react()
+    logData <- input$LogDataOpts
+    logMethod <- input$LogMthod
+    logPseudo <- input$LogPseudo
+    expData <- input$ExpDataOpts
+    ExpNum <- input$ExpNum
+    FiltNum <- input$matFilterNum
+    FiltProp <- input$matFilterProp
+    print(FiltNum)
+    print(FiltProp)
+    for (tabName in names(df_list)) {
+      df <- df_list[[tabName]]
+      if (tabName %in% logData) {
+        if (logMethod == "Log2") {
+          df[,-1] <- log2(as.matrix(df[,-1]+logPseudo))
+        } else if (logMethod == "Log10") {
+          df[,-1] <- log10(as.matrix(df[,-1]+logPseudo))
+        } else if (logMethod == "Log") {
+          df[,-1] <- log(as.matrix(df[,-1]+logPseudo))
+        }
+      }
+      if (tabName %in% expData) {
+        df[,-1] <- ExpNum^(as.matrix(df[,-1]))
+      }
+      if (isTruthy(FiltNum) & isTruthy(FiltProp)) {
+        if (FiltNum > 0 & FiltProp > 0) {
+          df <- filter_expression_matrix(df,FiltNum,FiltProp)
+        }
+      }
+      df_list[[tabName]] <- df
+    }
+    df_list
     
   })
   
@@ -582,7 +651,7 @@ server <- function(input, output, session) {
       files_select <- QC_react()[input$DataQCtab_rows_selected,1]
       xMax <- max(QC_react()[input$DataQCtab_rows_selected,6])
       df_list_avgExpr_df_select <- df_list_avgExpr_df[,c(colnames(df_list_avgExpr_df)[1],files_select)]
-      df_list_avgExpr_df_select_melt <- melt(df_list_avgExpr_df_select)
+      df_list_avgExpr_df_select_melt <- melt(data.table(df_list_avgExpr_df_select), id.vars = "Gene")
       
       p <- ggplot(df_list_avgExpr_df_select_melt, aes(x=value, fill=variable)) +
         geom_density(alpha=0.4) +
@@ -670,19 +739,21 @@ server <- function(input, output, session) {
     
     
     p <- ggplot(plot_df, aes(x = !!sym(set1), y = !!sym(set2),
-                             color = ColorCol,
+                             #color = ColorCol,
                              text = paste0("</br>Gene: ",Gene,
                                            "</br>",set1,": ",round(!!sym(set1),3),
                                            "</br>",set2,": ",round(!!sym(set2),3)))) +
-      geom_point(size = 1) +
+      geom_point(size = 1,color = "cadetblue") +
       theme_minimal() +
       theme(legend.position="none",
             axis.title = element_text(size = 14),
-            plot.title = element_text(size = 20)) +
+            plot.title = element_text(size = 20),
+            plot.margin = margin(1, 0, 0, 0, "cm")) +
       xlab(paste0("Average Expression: ",set1))+
       ylab(paste0("Average Expression: ",set2)) +
-      labs(title = paste0("Average Expression: ",set1," vs. ",set2)) +
-      scale_color_manual(values = c("cadetblue3","lightcoral"))
+      labs(title = paste0("Average Expression: ",set1," vs. ",set2))
+      #scale_color_manual(values = c("cadetblue3","lightcoral"))
+    
     
     if (length(genes) > 0) {
       plot_df_genes <- plot_df[which(plot_df[,1] %in% genes),]
@@ -715,6 +786,7 @@ server <- function(input, output, session) {
     set1 <- input$AvgExprData1
     set2 <- input$AvgExprData2
     plot_df <- AvgExpr_Plot_df()
+    ScatterTitle_in <- paste0("Average Expression: ",set1," vs. ",set2)
     ply <- ggplotly(p, tooltip = "text")
     genes <- input$AvgExprGene
     if (length(genes) > 0) {
@@ -736,7 +808,38 @@ server <- function(input, output, session) {
           filename = paste0(set1,"_",set2,"_Avg_Expression_",Sys.Date())
         )
       )
-    ply
+    if (length(plot_df[,set1]) > 0 & length(plot_df[,set2]) > 0) {
+      reg = lm(plot_df[,set2] ~ plot_df[,set1])
+      R2 = summary(reg)$r.squared
+      #if (regLine == T) {
+        xdf <- data.frame(plot_df[,set1])
+        colnames(xdf) <- c('xVar')
+        ydf <- reg %>% predict(xdf) %>% data.frame()
+        colnames(ydf) <- c('yVar')
+        xy <- data.frame(xdf, ydf)
+        ply <- ply %>%
+          add_lines(data = xy, x = ~xVar, y = ~yVar, name = "Regression Fit",
+                    line = list(color = "black", width=2, dash="dash"))
+      #}
+      # Add title and subtitle
+      coef <- paste0("Coefficients: y = ",round(coefficients(reg)[2],3),"x"," + ",round(coefficients(reg)[1],3))
+      rSqu <- paste0("R-Squared: ",R2)
+      ply <- ply %>% layout(title = list(text = paste0(ScatterTitle_in,
+                                                   '<br>',
+                                                   '<sup>',
+                                                   coef,
+                                                   '<br>',
+                                                   rSqu,
+                                                   '</sup>'),
+                                     x = 0,
+                                     xref='paper',
+                                     yref='paper',
+                                     align = "left"
+      )
+      )
+      ply
+    }
+    #ply
     
   })
   
