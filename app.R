@@ -49,21 +49,10 @@ ui <- navbarPage("{ MergeQC }",
                           sidebarLayout(
                             sidebarPanel(
                               h3("File Upload"),
-                              fileInput("MatFileInput", label = "Matrix Files:",multiple = T, placeholder = "CTRL + left click files"),
-                              fileInput("MetFileInput", label = "Meta Files:",multiple = T, placeholder = "CTRL + left click files"),
+                              fileInput("MatFileInput", label = "Matrix Files:",multiple = T, placeholder = "CTRL + left click or Command + left click files"),
+                              fileInput("MetFileInput", label = "Meta Files:",multiple = T, placeholder = "CTRL + left click or Command + left click files"),
                               tags$a(href="https://github.com/shawlab-moffitt/mergeQC/raw/main/Example_Data/Example_Data.zip", "Download example data", target='_blank'),
-                              conditionalPanel(condition = "output.MatFileInputUploaded == true",
-                                               hr(),
-                                               h4("Filter features with expression value of __ in __% of samples"),
-                                               fluidRow(
-                                                 column(6,
-                                                        numericInput("matFilterNum","Filter Value:",NULL)
-                                                 ),
-                                                 column(6,
-                                                        numericInput("matFilterProp","Filter Proportion (%):",NULL)
-                                                 )
-                                               )
-                                               )
+                              
                               
                             ),
                             
@@ -71,19 +60,19 @@ ui <- navbarPage("{ MergeQC }",
                             mainPanel(
                               verbatimTextOutput("FileCheckAlerts"),
                               fluidRow(
-                                column(2, #style = 'padding-right:0px',
+                                column(2,
                                        uiOutput("rendDnldMatrix")
                                 ),
-                                column(2, #style = 'padding-left:0px;padding-right:0px',
+                                column(2,
                                        uiOutput("rendDnldMeta")
                                 ),
-                                column(2, #style = 'padding-left:0px;padding-right:0px',
+                                column(2,
                                        uiOutput("rendDnldMatrixFull")
                                 ),
-                                column(2, #style = 'padding-left:0px;padding-right:0px',
+                                column(2,
                                        uiOutput("rendDnldMetaFull")
                                 ),
-                                column(2, #style = 'padding-left:0px',
+                                column(2,
                                        uiOutput("renddownload_notes")
                                 )
                               ),
@@ -105,7 +94,8 @@ ui <- navbarPage("{ MergeQC }",
                                                           p(),
                                                           fluidRow(
                                                             column(6,
-                                                                   selectizeInput("LogDataOpts","Select datasets to log:", choices = NULL, selected = NULL, multiple = T)
+                                                                   selectizeInput("LogDataOpts","Select datasets to log:", choices = NULL, selected = NULL, multiple = T,
+                                                                                  options = list(placeholder = 'Select datasets to log'))
                                                                    ),
                                                             column(3,
                                                                    selectInput("LogMthod","Log Base:", choices = c("Log2","Log10","Log"))
@@ -116,14 +106,27 @@ ui <- navbarPage("{ MergeQC }",
                                                           ),
                                                           fluidRow(
                                                             column(6,
-                                                                   selectizeInput("ExpDataOpts","Select datasets to exponentiate:", choices = NULL, selected = NULL, multiple = T)
+                                                                   selectizeInput("ExpDataOpts","Select datasets to exponentiate:", choices = NULL, selected = NULL, multiple = T,
+                                                                                  options = list(placeholder = 'Select datasets to exponentiate'))
                                                             ),
                                                             column(6,
                                                                    numericInput("ExpNum","Exponential Base:", value = 2)
                                                             )
                                                           ),
                                                           div(DT::dataTableOutput("DataQCtab"), style = "font-size:12px"),
-                                                          downloadButton("dnldDataQCtab","Download Table")
+                                                          downloadButton("dnldDataQCtab","Download Table"),
+                                                          conditionalPanel(condition = "output.MatFileInputUploaded == true",
+                                                                           hr(),
+                                                                           h4("Filter out features with expression value of __ in __% of samples"),
+                                                                           fluidRow(
+                                                                             column(6,
+                                                                                    numericInput("matFilterNum","Filter Value:",NULL)
+                                                                             ),
+                                                                             column(6,
+                                                                                    numericInput("matFilterProp","Filter Proportion (%):",NULL)
+                                                                             )
+                                                                           )
+                                                          )
                                                  ),
                                                  tabPanel("Figure Settings",
                                                  )
@@ -135,7 +138,19 @@ ui <- navbarPage("{ MergeQC }",
                                                           p(),
                                                           selectizeInput("AvgExprData1","Dataset 1:",choices = NULL, selected = 1),
                                                           selectizeInput("AvgExprData2","Dataset 2:",choices = NULL, selected = 1),
-                                                          selectizeInput("AvgExprGene","Highligh Genes:",choices = NULL, selected = NULL, multiple = T)
+                                                          selectizeInput("AvgExprGene","Highlight Genes:",choices = NULL, selected = NULL, multiple = T,
+                                                                         options = list(placeholder = 'Select gene(s) to highlight')),
+                                                          fluidRow(
+                                                            column(4, style = "padding-right:2px;margin-top:10px",
+                                                                   checkboxInput("ShowSDresidLines","Show SD Residual Lines", value = T),
+                                                                   ),
+                                                            column(3, style = "padding-right:4px",
+                                                                   numericInput("SDresidLine","+/- SD of Residuals", value = 3, min = 0, step = 1)
+                                                                   ),
+                                                            column(5, style = ";margin-top:10px",
+                                                                   checkboxInput("RemoveOutGenes","Remove genes outside SD", value = F)
+                                                            )
+                                                          ),
                                                           ),
                                                  tabPanel("Figure Settings",
                                                  )
@@ -167,6 +182,7 @@ ui <- navbarPage("{ MergeQC }",
                  )
 
 
+# Server -----------------------------------------------------------------------
 
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
@@ -177,6 +193,7 @@ server <- function(input, output, session) {
   outputOptions(output, 'MatFileInputUploaded', suspendWhenHidden=FALSE)
   
   FileCheckAlerts_react <- reactiveVal()
+  GenesToRemove <- reactiveVal(NULL)
   
   output$FileCheckAlerts <- renderPrint({
     
@@ -284,8 +301,6 @@ server <- function(input, output, session) {
     ExpNum <- input$ExpNum
     FiltNum <- input$matFilterNum
     FiltProp <- input$matFilterProp
-    print(FiltNum)
-    print(FiltProp)
     for (tabName in names(df_list)) {
       df <- df_list[[tabName]]
       if (tabName %in% logData) {
@@ -375,6 +390,11 @@ server <- function(input, output, session) {
     
     masterDF <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2),
                        df_list)
+    
+    if (length(GenesToRemove()) > 0) {
+      masterDF <- masterDF[which(!masterDF[,1] %in% GenesToRemove()),]
+    }
+    
     masterDF
     
   })
@@ -386,6 +406,11 @@ server <- function(input, output, session) {
     
     masterDF <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, all = TRUE),
                        df_list)
+    
+    if (length(GenesToRemove()) > 0) {
+      masterDF <- masterDF[which(!masterDF[,1] %in% GenesToRemove()),]
+    }
+    
     masterDF
     
   })
@@ -560,6 +585,14 @@ server <- function(input, output, session) {
     df_list <- matrix_files_react()
     
     df_list_qc <- lapply(df_list,function(x){
+      
+      if (isTruthy(AvgExpr_Plot_df())) {
+        if (input$RemoveOutGenes) {
+          removeGenes <- AvgExpr_Plot_df()[which(AvgExpr_Plot_df()[,"Color_Col"] == "gray84"),1]
+          x <- x[which(!x[,1] %in% removeGenes),]
+        }
+      }
+      
       quants <- c()
       quants <- c(quants,min = min(as.matrix(x[,-1]), na.rm = T))
       quants <- c(quants,quantile(as.matrix(x[,-1]),probs = c(0.25, 0.5, 0.75, 0.9, 0.99), na.rm = T))
@@ -619,6 +652,12 @@ server <- function(input, output, session) {
     
     df_list_avgExpr_df <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, all = T),
                                  df_list_avgExpr)
+    
+    
+    if (length(GenesToRemove()) > 0) {
+      df_list_avgExpr_df <- df_list_avgExpr_df[which(!df_list_avgExpr_df[,1] %in% GenesToRemove()),]
+    }
+    
     df_list_avgExpr_df
   })
   
@@ -715,16 +754,52 @@ server <- function(input, output, session) {
     set1 <- input$AvgExprData1
     set2 <- input$AvgExprData2
     df <- DensityPlot_df()
+    SDfromResid <- input$SDresidLine
     
-    df <- df[,c(colnames(df)[1],set1,set2)]
-    df <- df %>%
-      mutate(ColorCol = case_when(
-        df[,set2] > df[,set1] ~ paste0(set2," Expr > ",set1,' Expr'),
-        df[,set1] > df[,set2] ~ paste0(set1," Expr > ",set2,' Expr')
-      ))
+    
+    if (length(df[,set1]) > 0 & length(df[,set2]) > 0) {
+      df <- df[,c(colnames(df)[1],set1,set2)]
+      
+      reg = lm(df[,set2] ~ df[,set1])
+      R2 = summary(reg)$r.squared
+      
+      df[,"Regression Fit"] <- reg %>% predict(df[,set1, drop = F])
+      
+      df$Residuals <- residuals(reg)
+      sd_residuals <- sd(df$Residuals)
+      
+      df["Upper Residual Line"] <- df[,"Regression Fit"] + SDfromResid * sd_residuals
+      df["Lower Residual Line"] <- df[,"Regression Fit"] - SDfromResid * sd_residuals
+      
+      df["Outside Upper Residual Line"] <- ifelse((df[,set2] > df["Lower Residual Line"] & df[,set2] > df["Upper Residual Line"]) &
+                                                    (df[,set1] > df["Lower Residual Line"] & df[,set1] < df["Upper Residual Line"]),
+                                                  TRUE,FALSE)
+      df["Outside Lower Residual Line"] <- ifelse((df[,set2] < df["Lower Residual Line"] & df[,set2] < df["Upper Residual Line"]) &
+                                                    (df[,set1] > df["Lower Residual Line"] & df[,set1] < df["Upper Residual Line"]),
+                                                  TRUE,FALSE)
+      
+      df["Color_Col"] <- ifelse(df["Outside Upper Residual Line"] == TRUE | df["Outside Lower Residual Line"] == TRUE,"gray84","cadetblue3")
+      
+      
+      #if (input$RemoveOutGenes) {
+      #  df <- df[which(df[,"Color_Col"] == "cadetblue3"),]
+      #}
+      
+    }
     
     df
     
+    
+  })
+  
+  
+  observeEvent(input$RemoveOutGenes, {
+    
+    if (input$RemoveOutGenes) {
+      removeGenes <- c(GenesToRemove())
+      removeGenes <- c(removeGenes,AvgExpr_Plot_df()[which(AvgExpr_Plot_df()[,"Color_Col"] == "gray84"),1])
+      GenesToRemove(removeGenes)
+    }
     
   })
   
@@ -737,13 +812,18 @@ server <- function(input, output, session) {
     plot_df <- AvgExpr_Plot_df()
     genes <- input$AvgExprGene
     
+    if (length(GenesToRemove()) > 0) {
+      plot_df <- plot_df[which(!plot_df[,1] %in% GenesToRemove()),]
+    }
+    
     
     p <- ggplot(plot_df, aes(x = !!sym(set1), y = !!sym(set2),
-                             #color = ColorCol,
+                             color = Color_Col,
                              text = paste0("</br>Gene: ",Gene,
                                            "</br>",set1,": ",round(!!sym(set1),3),
                                            "</br>",set2,": ",round(!!sym(set2),3)))) +
-      geom_point(size = 1,color = "cadetblue") +
+      geom_point(size = 1) +
+      #geom_point(size = 1,color = "cadetblue") +
       theme_minimal() +
       theme(legend.position="none",
             axis.title = element_text(size = 14),
@@ -751,8 +831,8 @@ server <- function(input, output, session) {
             plot.margin = margin(1, 0, 0, 0, "cm")) +
       xlab(paste0("Average Expression: ",set1))+
       ylab(paste0("Average Expression: ",set2)) +
-      labs(title = paste0("Average Expression: ",set1," vs. ",set2))
-      #scale_color_manual(values = c("cadetblue3","lightcoral"))
+      labs(title = paste0("Average Expression: ",set1," vs. ",set2)) +
+      scale_color_manual(values = c("cadetblue3","gray84"))
     
     
     if (length(genes) > 0) {
@@ -787,6 +867,7 @@ server <- function(input, output, session) {
     set2 <- input$AvgExprData2
     plot_df <- AvgExpr_Plot_df()
     ScatterTitle_in <- paste0("Average Expression: ",set1," vs. ",set2)
+    showRSD <- input$ShowSDresidLines
     ply <- ggplotly(p, tooltip = "text")
     genes <- input$AvgExprGene
     if (length(genes) > 0) {
@@ -794,7 +875,7 @@ server <- function(input, output, session) {
       ply <- ply %>%
         add_annotations(x = plot_df_genes[,set1],
                         y = plot_df_genes[,set2],
-                        text = plot_df_genes[,1],
+                        text = paste0("<b>",plot_df_genes[,1],"</b>"),
                         showarrow = TRUE,
                         arrowhead = 4,
                         arrowsize = .5)
@@ -811,16 +892,6 @@ server <- function(input, output, session) {
     if (length(plot_df[,set1]) > 0 & length(plot_df[,set2]) > 0) {
       reg = lm(plot_df[,set2] ~ plot_df[,set1])
       R2 = summary(reg)$r.squared
-      #if (regLine == T) {
-        xdf <- data.frame(plot_df[,set1])
-        colnames(xdf) <- c('xVar')
-        ydf <- reg %>% predict(xdf) %>% data.frame()
-        colnames(ydf) <- c('yVar')
-        xy <- data.frame(xdf, ydf)
-        ply <- ply %>%
-          add_lines(data = xy, x = ~xVar, y = ~yVar, name = "Regression Fit",
-                    line = list(color = "black", width=2, dash="dash"))
-      #}
       # Add title and subtitle
       coef <- paste0("Coefficients: y = ",round(coefficients(reg)[2],3),"x"," + ",round(coefficients(reg)[1],3))
       rSqu <- paste0("R-Squared: ",R2)
@@ -837,20 +908,35 @@ server <- function(input, output, session) {
                                      align = "left"
       )
       )
+      colnames(plot_df)[which(colnames(plot_df) %in% c(set1,set2))] <- c("set1","set2")
+      ply <- ply %>%
+        add_lines(data = plot_df, x = ~set1, y = ~`Regression Fit`, name = "Regression Fit",
+                  line = list(color = "black", width=2, dash="dash"))
+      if (showRSD) {
+        ply <- ply %>%
+          add_lines(data = plot_df, x = ~set1, y = ~`Upper Residual Line`, name = "Residual +2 SD",
+                    line = list(color = "red", width=2, dash="dash")) %>%
+          add_lines(data = plot_df, x = ~set1, y = ~`Lower Residual Line`, name = "Residual -2 SD",
+                    line = list(color = "red", width=2, dash="dash"))
+      }
       ply
     }
-    #ply
-    
+
   })
   
   output$AvgExpr_df <- DT::renderDataTable({
     
-    df <- AvgExpr_Plot_df()[,-4]
+    df <- AvgExpr_Plot_df()
+    if (length(GenesToRemove()) > 0) {
+      df <- df[which(!df[,1] %in% GenesToRemove()),]
+    }
+    df <- df[,-ncol(AvgExpr_Plot_df())]
     datatable(df,
               options = list(lengthMenu = c(5,10, 20, 100, 1000),
                              pageLength = 10,
                              scrollX = T),
-              rownames = F)
+              rownames = F) %>%
+      formatRound(columns = colnames(df)[c(2:7)], digits = 4)
   })
   output$dnldAvgExpr_df <- downloadHandler(
     filename = function() {
@@ -859,7 +945,7 @@ server <- function(input, output, session) {
       paste0(set1,"_",set2,"_Avg_Expression_",Sys.Date(),".txt")
     },
     content = function(file) {
-      df <- AvgExpr_Plot_df()
+      df <- AvgExpr_Plot_df()[,-ncol(AvgExpr_Plot_df())]
       write.table(df,file, sep = '\t', row.names = F)
     }
   )
