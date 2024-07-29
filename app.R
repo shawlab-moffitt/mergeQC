@@ -38,6 +38,13 @@ filter_expression_matrix <- function(data,criteria,proportion) {
   colnames(filtered_matrix)[1] <- colnames(data)[1]
   return(filtered_matrix)
 }
+shinyInput <- function(FUN, len, id, ...) {
+  inputs <- character(len)
+  for (i in seq_len(len)) {
+    inputs[i] <- as.character(FUN(paste0(id, i), label = NULL, ...))
+  }
+  inputs
+}
 
 # UI ---------------------------------------------------------------------------
 
@@ -147,10 +154,21 @@ ui <- navbarPage("{ MergeQC }",
                                                             column(3, style = "padding-right:4px",
                                                                    numericInput("SDresidLine","+/- SD of Residuals", value = 3, min = 0, step = 1)
                                                                    ),
-                                                            column(5, style = ";margin-top:10px",
-                                                                   checkboxInput("RemoveOutGenes","Remove genes outside SD", value = F)
+                                                            column(5, style = "margin-top:25px",
+                                                                   actionButton("RemoveOutGenes","Remove genes outside SD")
                                                             )
                                                           ),
+                                                          selectizeInput("RemovedGenesDF","Remove Genes:",choices = NULL, selected = NULL, multiple = T),
+                                                          #uiOutput("rendRemovedGenesDF"),
+                                                          tags$head(
+                                                            tags$style(HTML(
+                                                              '.selectize-input {
+                                                              max-height: 302px;
+                                                              overflow-y: auto;
+                                                              }'
+                                                              )
+                                                              )
+                                                          )
                                                           ),
                                                  tabPanel("Figure Settings",
                                                  )
@@ -158,6 +176,25 @@ ui <- navbarPage("{ MergeQC }",
                                                )
                             ),
                             mainPanel(
+                              verbatimTextOutput("FileCheckAlerts2"),
+                              fluidRow(
+                                column(2,
+                                       uiOutput("rendDnldMatrix2")
+                                ),
+                                column(2,
+                                       uiOutput("rendDnldMeta2")
+                                ),
+                                column(2,
+                                       uiOutput("rendDnldMatrixFull2")
+                                ),
+                                column(2,
+                                       uiOutput("rendDnldMetaFull2")
+                                ),
+                                column(2,
+                                       uiOutput("renddownload_notes2")
+                                )
+                              ),
+                              p(),
                               tabsetPanel(id = "QCtab",
                                           tabPanel("Expression Density",
                                                    p(),
@@ -202,12 +239,33 @@ server <- function(input, output, session) {
     cat(text)
     
   })
+  output$FileCheckAlerts2 <- renderPrint({
+    
+    req(FileCheckAlerts_react())
+    text <- paste(FileCheckAlerts_react(), collapse = "\n")
+    cat(text)
+    
+  })
   output$renddownload_notes <- renderUI({
     if (length(FileCheckAlerts_react()) > 0) {
       downloadButton("download_notes","Download data processing notes")
     }
   })
+  output$renddownload_notes2 <- renderUI({
+    if (length(FileCheckAlerts_react()) > 0) {
+      downloadButton("download_notes","Download data processing notes")
+    }
+  })
   output$download_notes <- downloadHandler(
+    filename = function() {
+      paste("Merge_Data_Processing_Notes_", Sys.Date(), ".txt", sep = "")
+    },
+    content = function(file) {
+      df <- FileCheckAlerts_react()
+      writeLines(df, file)
+    }
+  )
+  output$download_notes2 <- downloadHandler(
     filename = function() {
       paste("Merge_Data_Processing_Notes_", Sys.Date(), ".txt", sep = "")
     },
@@ -329,7 +387,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$MetFileInput, {
     
-    req(matrix_files_react())
+    #req(matrix_files_react())
     appendTab(inputId = "tabs",
               tabPanel("Full Merged Meta",
                        uiOutput("rendMetaHeader"),
@@ -377,10 +435,18 @@ server <- function(input, output, session) {
     req(matrix_merged_inn())
     downloadButton("dnldMatrix","Inner Merged Matrix")
   })
+  output$rendDnldMatrix2 <- renderUI({
+    req(matrix_merged_inn())
+    downloadButton("dnldMatrix2","Inner Merged Matrix")
+  })
   
   output$rendDnldMatrixFull <- renderUI({
     req(matrix_merged_full())
     downloadButton("dnldMatrixFull","Full Merged Matrix")
+  })
+  output$rendDnldMatrixFull2 <- renderUI({
+    req(matrix_merged_full())
+    downloadButton("dnldMatrixFull2","Full Merged Matrix")
   })
   
   matrix_merged_inn <- reactive({
@@ -391,8 +457,10 @@ server <- function(input, output, session) {
     masterDF <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2),
                        df_list)
     
-    if (length(GenesToRemove()) > 0) {
-      masterDF <- masterDF[which(!masterDF[,1] %in% GenesToRemove()),]
+    if (isTruthy(input$RemoveOutGenes)) {
+      if (length(input$RemovedGenesDF) > 0) {
+        masterDF <- masterDF[which(!masterDF[,1] %in% input$RemovedGenesDF),]
+      }
     }
     
     masterDF
@@ -407,8 +475,10 @@ server <- function(input, output, session) {
     masterDF <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, all = TRUE),
                        df_list)
     
-    if (length(GenesToRemove()) > 0) {
-      masterDF <- masterDF[which(!masterDF[,1] %in% GenesToRemove()),]
+    if (isTruthy(input$RemoveOutGenes)) {
+      if (length(input$RemovedGenesDF) > 0) {
+        masterDF <- masterDF[which(!masterDF[,1] %in% input$RemovedGenesDF),]
+      }
     }
     
     masterDF
@@ -476,7 +546,25 @@ server <- function(input, output, session) {
       write.table(df,file, sep = '\t', row.names = F)
     }
   )
+  output$dnldMatrixFull2 <- downloadHandler(
+    filename = function() {
+      paste0("Full_Merged_Matrix_",Sys.Date(),".txt")
+    },
+    content = function(file) {
+      df <- matrix_merged_full()
+      write.table(df,file, sep = '\t', row.names = F)
+    }
+  )
   output$dnldMatrix <- downloadHandler(
+    filename = function() {
+      paste0("Inner_Merged_Matrix_",Sys.Date(),".txt")
+    },
+    content = function(file) {
+      df <- matrix_merged_inn()
+      write.table(df,file, sep = '\t', row.names = F)
+    }
+  )
+  output$dnldMatrix2 <- downloadHandler(
     filename = function() {
       paste0("Inner_Merged_Matrix_",Sys.Date(),".txt")
     },
@@ -489,10 +577,12 @@ server <- function(input, output, session) {
   
   # Meta Merge -----------------------------------------------------------------
   output$rendDnldMeta <- renderUI({
-    
     req(meta_merged())
     downloadButton("dnldMeta","Inner Merged Meta")
-    
+  })
+  output$rendDnldMeta2 <- renderUI({
+    req(meta_merged())
+    downloadButton("dnldMeta2","Inner Merged Meta")
   })
   
   meta_merged <- reactive({
@@ -552,28 +642,69 @@ server <- function(input, output, session) {
       write.table(df,file, sep = '\t', row.names = F)
     }
   )
+  output$dnldMeta2 <- downloadHandler(
+    filename = function() {
+      paste0("Merged_Meta_",Sys.Date(),".txt")
+    },
+    content = function(file) {
+      df <- meta_merged()
+      write.table(df,file, sep = '\t', row.names = F)
+    }
+  )
   
   # Data Processing ------------------------------------------------------------
   
   observe({
     
-    SampsDiffInMet <- setdiff(meta_merged()[,1],intersect(meta_merged()[,1], colnames(matrix_merged_full())[-1]))
-    SampsDiffInMat <- setdiff(colnames(matrix_merged_full())[-1],intersect(meta_merged()[,1], colnames(matrix_merged_full())[-1]))
     FileCheckAlerts_list <- c()
-    FileCheckAlerts_list <- c(FileCheckAlerts_list,
-                              paste0("Number of matrix files uploaded: ",length(matrix_files_react())),
-                              paste0("Number of meta files uploaded: ",length(meta_files_react())),
-                              paste0("Total number of samples from matrix data: ",ncol(matrix_merged_full()[,-1])),
-                              paste0("Total number of samples from meta data: ",nrow(meta_merged())),
-                              paste0("Total number of features consistent in all matrix data: ",nrow(matrix_merged_inn())))
-    if (length(SampsDiffInMat) > 0) {
+    if (isTruthy(input$MatFileInput) & isTruthy(input$MetFileInput)) {
+      SampsDiffInMet <- setdiff(meta_merged()[,1],intersect(meta_merged()[,1], colnames(matrix_merged_full())[-1]))
+      SampsDiffInMat <- setdiff(colnames(matrix_merged_full())[-1],intersect(meta_merged()[,1], colnames(matrix_merged_full())[-1]))
       FileCheckAlerts_list <- c(FileCheckAlerts_list,
-                                paste0("Number of samples in matrix data not found in meta data: ",SampsDiffInMat))
+                                paste0("Number of matrix files uploaded: ",length(matrix_files_react())),
+                                paste0("Number of meta files uploaded: ",length(meta_files_react())),
+                                paste0("Total number of samples from matrix data: ",ncol(matrix_merged_full()[,-1])),
+                                paste0("Total number of samples from meta data: ",nrow(meta_merged())),
+                                paste0("Total number of features consistent in all matrix data: ",nrow(matrix_merged_inn())))
+      if (length(SampsDiffInMat) > 0) {
+        FileCheckAlerts_list <- c(FileCheckAlerts_list,
+                                  paste0("Number of samples in matrix data not found in meta data: ",SampsDiffInMat))
+      }
+      if (length(SampsDiffInMet) > 0) {
+        FileCheckAlerts_list <- c(FileCheckAlerts_list,
+                                  paste0("Number of samples in meta data not found in matrix data: ",SampsDiffInMet))
+      }
+      FileCheckAlerts_react(FileCheckAlerts_list)
     }
-    if (length(SampsDiffInMet) > 0) {
+    if (isTruthy(input$MatFileInput) & !isTruthy(input$MetFileInput)) {
       FileCheckAlerts_list <- c(FileCheckAlerts_list,
-                                paste0("Number of samples in meta data not found in matrix data: ",SampsDiffInMet))
+                                paste0("Number of matrix files uploaded: ",length(matrix_files_react())),
+                                paste0("Total number of samples from matrix data: ",ncol(matrix_merged_full()[,-1])),
+                                paste0("Total number of features consistent in all matrix data: ",nrow(matrix_merged_inn())))
     }
+    
+    if (length(input$LogDataOpts) > 0) {
+      FileCheckAlerts_list <- c(FileCheckAlerts_list,paste0("Datasets transformed by ",input$LogMthod,"+",input$LogPseudo," :"))
+      FileCheckAlerts_list <- c(FileCheckAlerts_list,paste0("  ",input$LogDataOpts))
+    }
+    if (length(input$ExpDataOpts) > 0) {
+      FileCheckAlerts_list <- c(FileCheckAlerts_list,paste0("Datasets transformed exponentially with base",input$ExpNum," :"))
+      FileCheckAlerts_list <- c(FileCheckAlerts_list,paste0("  ",input$ExpDataOpts))
+    }
+    if (isTruthy(input$matFilterNum) & isTruthy(input$matFilterProp)) {
+      if ((input$matFilterNum > 0) & (input$matFilterProp > 0)) {
+        FileCheckAlerts_list <- c(FileCheckAlerts_list,
+                                  paste("Features with an expression level less than ",input$matFilterNum," in ",input$matFilterProp,"% of samples filtered out"))
+      }
+    }
+    if (isTruthy(input$RemoveOutGenes)) {
+      if (length(input$RemovedGenesDF) > 0) {
+        FileCheckAlerts_list <- c(FileCheckAlerts_list,
+                                  paste0("When comparing average expression of ",input$AvgExprData1," and ",input$AvgExprData2,", genes that were expressed\n",
+                                         "  outside ",input$SDresidLine," standard deviations of the residual were removed from the merged data.\n  Number of genes removed: ",length(input$RemovedGenesDF)))
+      }
+    }
+    
     FileCheckAlerts_react(FileCheckAlerts_list)
     
   })
@@ -587,9 +718,12 @@ server <- function(input, output, session) {
     df_list_qc <- lapply(df_list,function(x){
       
       if (isTruthy(AvgExpr_Plot_df())) {
-        if (input$RemoveOutGenes) {
-          removeGenes <- AvgExpr_Plot_df()[which(AvgExpr_Plot_df()[,"Color_Col"] == "gray84"),1]
+        if (isTruthy(input$RemoveOutGenes)) {
+          if (length(input$RemovedGenesDF) > 0){
+          removeGenes <- input$RemovedGenesDF
+          #removeGenes <- AvgExpr_Plot_df()[which(AvgExpr_Plot_df()[,"Color_Col"] == "gray84"),1]
           x <- x[which(!x[,1] %in% removeGenes),]
+          }
         }
       }
       
@@ -654,9 +788,11 @@ server <- function(input, output, session) {
                                  df_list_avgExpr)
     
     
-    if (length(GenesToRemove()) > 0) {
-      df_list_avgExpr_df <- df_list_avgExpr_df[which(!df_list_avgExpr_df[,1] %in% GenesToRemove()),]
-    }
+    #if (input$RemoveOutGenes) {
+      #if (length(GenesToRemove()) > 0) {
+      #  df_list_avgExpr_df <- df_list_avgExpr_df[which(!df_list_avgExpr_df[,1] %in% GenesToRemove()),]
+      #}
+    #}
     
     df_list_avgExpr_df
   })
@@ -664,6 +800,11 @@ server <- function(input, output, session) {
   output$AvgExprDens <- DT::renderDataTable({
     
     df <- DensityPlot_df()
+    if (isTruthy(input$RemoveOutGenes)) {
+      if (length(input$RemovedGenesDF) > 0) {
+        df <- df[which(!df[,1] %in% input$RemovedGenesDF),]
+      }
+    }
     datatable(df,
               options = list(lengthMenu = c(5,10, 20, 100, 1000),
                              pageLength = 10,
@@ -679,6 +820,9 @@ server <- function(input, output, session) {
     },
     content = function(file) {
       df <- DensityPlot_df()
+      if (length(GenesToRemove()) > 0) {
+        df <- df[which(!df[,1] %in% GenesToRemove()),]
+      }
       write.table(df,file, sep = '\t', row.names = F)
     }
   )
@@ -687,6 +831,11 @@ server <- function(input, output, session) {
     
     if (length(input$DataQCtab_rows_selected) > 0) {
       df_list_avgExpr_df <- DensityPlot_df()
+      if (isTruthy(input$RemoveOutGenes)) {
+        if (length(input$RemovedGenesDF) > 0) {
+          df_list_avgExpr_df <- df_list_avgExpr_df[which(!df_list_avgExpr_df[,1] %in% input$RemovedGenesDF),]
+        }
+      }
       files_select <- QC_react()[input$DataQCtab_rows_selected,1]
       xMax <- max(QC_react()[input$DataQCtab_rows_selected,6])
       df_list_avgExpr_df_select <- df_list_avgExpr_df[,c(colnames(df_list_avgExpr_df)[1],files_select)]
@@ -760,30 +909,28 @@ server <- function(input, output, session) {
     if (length(df[,set1]) > 0 & length(df[,set2]) > 0) {
       df <- df[,c(colnames(df)[1],set1,set2)]
       
+      df <- df[complete.cases(df),]
+      
       reg = lm(df[,set2] ~ df[,set1])
       R2 = summary(reg)$r.squared
       
       df[,"Regression Fit"] <- reg %>% predict(df[,set1, drop = F])
       
-      df$Residuals <- residuals(reg)
-      sd_residuals <- sd(df$Residuals)
+      #save(list = ls(), file = "Avg_Expr_Resid.RData", envir = environment())
       
-      df["Upper Residual Line"] <- df[,"Regression Fit"] + SDfromResid * sd_residuals
-      df["Lower Residual Line"] <- df[,"Regression Fit"] - SDfromResid * sd_residuals
+      df$Residuals <- residuals(reg, na.rm = T)
+      sd_residuals <- sd(df$Residuals, na.rm = T)
       
-      df["Outside Upper Residual Line"] <- ifelse((df[,set2] > df["Lower Residual Line"] & df[,set2] > df["Upper Residual Line"]) &
-                                                    (df[,set1] > df["Lower Residual Line"] & df[,set1] < df["Upper Residual Line"]),
+      df[,"Upper Residual Line"] <- df[,"Regression Fit"] + SDfromResid * sd_residuals
+      df[,"Lower Residual Line"] <- df[,"Regression Fit"] - SDfromResid * sd_residuals
+      
+      
+      df[,"Outside Upper Residual Line"] <- ifelse(df[,set2] > df[,"Upper Residual Line"],
                                                   TRUE,FALSE)
-      df["Outside Lower Residual Line"] <- ifelse((df[,set2] < df["Lower Residual Line"] & df[,set2] < df["Upper Residual Line"]) &
-                                                    (df[,set1] > df["Lower Residual Line"] & df[,set1] < df["Upper Residual Line"]),
+      df[,"Outside Lower Residual Line"] <- ifelse(df[,set2] < df[,"Lower Residual Line"],
                                                   TRUE,FALSE)
       
-      df["Color_Col"] <- ifelse(df["Outside Upper Residual Line"] == TRUE | df["Outside Lower Residual Line"] == TRUE,"gray84","cadetblue3")
-      
-      
-      #if (input$RemoveOutGenes) {
-      #  df <- df[which(df[,"Color_Col"] == "cadetblue3"),]
-      #}
+      df[,"Color_Col"] <- ifelse(df[,"Outside Upper Residual Line"] == TRUE | df[,"Outside Lower Residual Line"] == TRUE,"gray84","cadetblue3")
       
     }
     
@@ -792,16 +939,62 @@ server <- function(input, output, session) {
     
   })
   
+  #RemoveGeneDF <- reactiveVal()
   
   observeEvent(input$RemoveOutGenes, {
-    
-    if (input$RemoveOutGenes) {
-      removeGenes <- c(GenesToRemove())
-      removeGenes <- c(removeGenes,AvgExpr_Plot_df()[which(AvgExpr_Plot_df()[,"Color_Col"] == "gray84"),1])
-      GenesToRemove(removeGenes)
-    }
-    
+    df <- AvgExpr_Plot_df()
+    removeGenes <- c(GenesToRemove())
+    removeGenes <- c(removeGenes,AvgExpr_Plot_df()[which(AvgExpr_Plot_df()[,"Color_Col"] == "gray84"),1])
+    removeGenes <- unique(removeGenes)
+    GenesToRemove(removeGenes)
   })
+  
+  observe({
+    #GenesWereRemoved(input$RemovedGenesDF)
+    updateSelectizeInput(session,"RemovedGenesDF", choices = DensityPlot_df()[,1], selected = GenesToRemove(), server = T)
+  })
+  #observeEvent(input$RemoveOutGenes, {
+  #  output$rendRemovedGenesDF <- renderUI({
+  #    selectizeInput("RemovedGenesDF","Genes Removed:",choices = DensityPlot_df()[,1], selected = NULL, multiple = T)
+  #  })
+  #})
+  
+  
+  
+  
+  #js <- c(
+  #  "$('[id^=checkb]').on('click', function(){",
+  #  "  var id = this.getAttribute('id');",
+  #  "  var i = parseInt(/checkb(\\d+)/.exec(id)[1]);",
+  #  "  var value = $(this).prop('checked');",
+  #  "  var info = [{row: i, col: 2, value: value}];",
+  #  "  Shiny.setInputValue('RemovedGenesDF_cell_edit:DT.cellInfo', info);",
+  #  "})"
+  #)
+  #output$RemovedGenesDF <- DT::renderDataTable({
+  #  
+  #  df <- RemoveGeneDF()
+  #  datatable(df,
+  #            options = list(paging = F),
+  #            escape = FALSE,
+  #            editable = list(target = "cell", disable = list(columns = 2)),
+  #            selection = "none",
+  #            callback = JS(js),
+  #            rownames = F)
+  #  
+  #})
+  #
+  #observeEvent(input[["RemovedGenesDF_cell_edit"]], { 
+  #  info <- input[["RemovedGenesDF_cell_edit"]] # this input contains the info of the edit
+  #  print(head(info))
+  #  RemoveGeneDF(editData(RemoveGeneDF(), info))
+  #})
+  #
+  #observe({
+  #  
+  #  print(head(input[["RemovedGenesDF_cell_edit"]]))
+  #  
+  #})
   
   AvgExpr_Plot_react <- reactive({
     
@@ -809,12 +1002,17 @@ server <- function(input, output, session) {
     
     set1 <- input$AvgExprData1
     set2 <- input$AvgExprData2
-    plot_df <- AvgExpr_Plot_df()
+    plot_df1 <- AvgExpr_Plot_df()
     genes <- input$AvgExprGene
+    RemoveGenes <- input$RemovedGenesDF
+    plot_df <- plot_df1
     
-    if (length(GenesToRemove()) > 0) {
-      plot_df <- plot_df[which(!plot_df[,1] %in% GenesToRemove()),]
-    }
+    
+    #if (input$RemoveOutGenes) {
+      if (length(RemoveGenes) > 0) {
+        plot_df <- plot_df[which(!plot_df[,1] %in% RemoveGenes),]
+      }
+    #}
     
     
     p <- ggplot(plot_df, aes(x = !!sym(set1), y = !!sym(set2),
@@ -868,6 +1066,7 @@ server <- function(input, output, session) {
     plot_df <- AvgExpr_Plot_df()
     ScatterTitle_in <- paste0("Average Expression: ",set1," vs. ",set2)
     showRSD <- input$ShowSDresidLines
+    SDfromResid <- input$SDresidLine
     ply <- ggplotly(p, tooltip = "text")
     genes <- input$AvgExprGene
     if (length(genes) > 0) {
@@ -894,7 +1093,7 @@ server <- function(input, output, session) {
       R2 = summary(reg)$r.squared
       # Add title and subtitle
       coef <- paste0("Coefficients: y = ",round(coefficients(reg)[2],3),"x"," + ",round(coefficients(reg)[1],3))
-      rSqu <- paste0("R-Squared: ",R2)
+      rSqu <- paste0("R-Squared: ",round(R2,3))
       ply <- ply %>% layout(title = list(text = paste0(ScatterTitle_in,
                                                    '<br>',
                                                    '<sup>',
@@ -914,9 +1113,9 @@ server <- function(input, output, session) {
                   line = list(color = "black", width=2, dash="dash"))
       if (showRSD) {
         ply <- ply %>%
-          add_lines(data = plot_df, x = ~set1, y = ~`Upper Residual Line`, name = "Residual +2 SD",
+          add_lines(data = plot_df, x = ~set1, y = ~`Upper Residual Line`, name = paste("Residual +",SDfromResid,"SD"),
                     line = list(color = "red", width=2, dash="dash")) %>%
-          add_lines(data = plot_df, x = ~set1, y = ~`Lower Residual Line`, name = "Residual -2 SD",
+          add_lines(data = plot_df, x = ~set1, y = ~`Lower Residual Line`, name = paste("Residual -",SDfromResid,"SD"),
                     line = list(color = "red", width=2, dash="dash"))
       }
       ply
@@ -927,8 +1126,10 @@ server <- function(input, output, session) {
   output$AvgExpr_df <- DT::renderDataTable({
     
     df <- AvgExpr_Plot_df()
-    if (length(GenesToRemove()) > 0) {
-      df <- df[which(!df[,1] %in% GenesToRemove()),]
+    if (isTruthy(input$RemoveOutGenes)) {
+      if (length(input$RemovedGenesDF) > 0) {
+        df <- df[which(!df[,1] %in% input$RemovedGenesDF),]
+      }
     }
     df <- df[,-ncol(AvgExpr_Plot_df())]
     datatable(df,
