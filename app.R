@@ -11,6 +11,7 @@ library("plotly")
 library("DT")
 library("data.table")
 library("RecordLinkage")
+library("janitor")
 
 options(shiny.maxRequestSize = 10000*1024^2)
 
@@ -58,8 +59,15 @@ ui <- navbarPage("{ MergeQC }",
                               h3("File Upload"),
                               fileInput("MatFileInput", label = "Matrix Files:",multiple = T, placeholder = "CTRL + left click or Command + left click files"),
                               fileInput("MetFileInput", label = "Meta Files:",multiple = T, placeholder = "CTRL + left click or Command + left click files"),
-                              tags$a(href="https://github.com/shawlab-moffitt/mergeQC/raw/main/Example_Data/Example_Data.zip", "Download example data", target='_blank'),
-                              
+                              fluidRow(
+                                column(8, style = "padding-right:2px",
+                                       uiOutput("rendCleanSampleNames"),
+                                       uiOutput("rendCleanMetaNames")
+                                       ),
+                                column(4, style = "margin-top:10px;padding-left:2px",
+                                       tags$a(href="https://github.com/shawlab-moffitt/mergeQC/raw/main/Example_Data/Example_Data.zip", "Download example data", target='_blank')
+                                       )
+                              )
                               
                             ),
                             
@@ -224,6 +232,15 @@ ui <- navbarPage("{ MergeQC }",
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
   
+  output$rendCleanSampleNames <- renderUI({
+    req(input$MatFileInput)
+    checkboxInput("CleanSampleNames","Clean Sample Names", value = FALSE)
+  })
+  output$rendCleanMetaNames <- renderUI({
+    req(input$MetFileInput)
+    checkboxInput("CleanMetaNames","Clean Meta Column Names", value = FALSE)
+  })
+  
   output$MatFileInputUploaded <- reactive({
     return(!is.null(matrix_files_react()))
   })
@@ -385,11 +402,11 @@ server <- function(input, output, session) {
   })
   
   
-  observeEvent(input$MetFileInput, {
+  observeEvent(input$MatFileInput, {
     
     #req(matrix_files_react())
     appendTab(inputId = "tabs",
-              tabPanel("Full Merged Meta",
+              tabPanel("Merged Meta",
                        uiOutput("rendMetaHeader"),
                        uiOutput("rendMetHead"),
                        dataTableOutput("Meta_Merge_Preview")
@@ -410,6 +427,7 @@ server <- function(input, output, session) {
   meta_files_react <- reactive({
     
     req(meta_files_df_react())
+    #req(input$CleanMetaNames)
     file_df <- meta_files_df_react()
     if (nrow(file_df) == 1) {
       if (tools::file_ext(file_df$datapath[1]) %in% c("zip","ZIP","gz","GZ")) {
@@ -454,6 +472,15 @@ server <- function(input, output, session) {
     df_list <- matrix_files_react()
     file_df <- matrix_files_df_react()
     
+    if (!is.null(input$CleanSampleNames)) {
+      if (input$CleanSampleNames) {
+        df_list <- lapply(df_list,function(x) {
+          x <- x %>% janitor::clean_names(case = "none")
+          return(x)
+        })
+      }
+    }
+    
     masterDF <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2),
                        df_list)
     
@@ -471,6 +498,15 @@ server <- function(input, output, session) {
     
     df_list <- matrix_files_react()
     file_df <- matrix_files_df_react()
+    
+    if (!is.null(input$CleanSampleNames)) {
+      if (input$CleanSampleNames) {
+        df_list <- lapply(df_list,function(x) {
+          x <- x %>% janitor::clean_names(case = "none")
+          return(x)
+        })
+      }
+    }
     
     masterDF <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, all = TRUE),
                        df_list)
@@ -587,23 +623,50 @@ server <- function(input, output, session) {
   
   meta_merged <- reactive({
     
-    req(matrix_merged_inn())
-    df_list <- meta_files_react()
-    file_df <- meta_files_df_react()
-    matrix_merged_inn <- matrix_merged_inn()
-    
-    merged_meta <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, all = TRUE),
-                       df_list)
-
-    matrix_colnames <- colnames(matrix_merged_inn)[-1]
-    match_scores <- sapply(merged_meta$OrigMetaID, function (x) sapply(matrix_colnames, function(y) levenshteinSim(y, x)))
-    merged_meta$BestMatchID <- rownames(match_scores)[apply(match_scores, 2, which.max)]
-    merged_meta$BestMatchScore <- apply(match_scores, 2, max)
-    merged_meta <- merged_meta %>% dplyr::relocate(File_Name)
-    merged_meta <- merged_meta |> dplyr::relocate(BestMatchID)
-    merged_meta <- merged_meta |> dplyr::relocate(BestMatchScore, .before = OrigMetaID)
-    merged_meta <- merged_meta[match(matrix_colnames, merged_meta$BestMatchID),]
-    merged_meta
+    if (isTruthy(meta_files_df_react())) {
+      req(matrix_merged_inn())
+      df_list <- meta_files_react()
+      file_df <- meta_files_df_react()
+      matrix_merged_inn <- matrix_merged_inn()
+      
+      if (!is.null(input$CleanMetaNames)) {
+        if (input$CleanMetaNames) {
+          df_list <- lapply(df_list,function(x) {
+            x <- x %>% janitor::clean_names(case = "none")
+            return(x)
+          })
+        }
+      }
+      
+      if (!is.null(input$CleanSampleNames)) {
+        if (input$CleanSampleNames) {
+          df_list <- lapply(df_list,function(x) {
+            x <- x %>% janitor::clean_names(case = "none")
+            return(x)
+          })
+        }
+      }
+      merged_meta <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, all = TRUE),
+                            df_list)
+      matrix_colnames <- colnames(matrix_merged_inn)[-1]
+      match_scores <- sapply(merged_meta$OrigMetaID, function (x) sapply(matrix_colnames, function(y) levenshteinSim(y, x)))
+      merged_meta$BestMatchID <- rownames(match_scores)[apply(match_scores, 2, which.max)]
+      merged_meta$BestMatchScore <- apply(match_scores, 2, max)
+      merged_meta <- merged_meta %>% dplyr::relocate(File_Name)
+      merged_meta <- merged_meta |> dplyr::relocate(BestMatchID)
+      merged_meta <- merged_meta |> dplyr::relocate(BestMatchScore, .before = OrigMetaID)
+      merged_meta <- merged_meta[match(matrix_colnames, merged_meta$BestMatchID),]
+      merged_meta
+    } else {
+      req(matrix_merged_inn())
+      matrix_merged_inn <- matrix_merged_inn()
+      df_list <- matrix_files_react()
+      merged_meta <- data.frame(SampleName = colnames(matrix_merged_inn)[-1],
+                                File_Name = unname(unlist(sapply(names(df_list),function(x) {
+                                  rep(x,ncol(df_list[[x]])-1)
+                                }))))
+      merged_meta
+    }
     
   })
   
